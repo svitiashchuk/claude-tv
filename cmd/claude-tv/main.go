@@ -15,10 +15,10 @@ import (
 	"syscall"
 	"time"
 
-	"claude-tv/internal/app"
-	"claude-tv/internal/device"
-	"claude-tv/internal/render"
-	"claude-tv/internal/usage"
+	"github.com/svitiashchuk/claude-tv/internal/app"
+	"github.com/svitiashchuk/claude-tv/internal/device"
+	"github.com/svitiashchuk/claude-tv/internal/render"
+	"github.com/svitiashchuk/claude-tv/internal/usage"
 )
 
 func main() {

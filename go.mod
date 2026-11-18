@@ -1,4 +1,4 @@
-module claude-tv
+module github.com/svitiashchuk/claude-tv
 
 go 1.26.0
 

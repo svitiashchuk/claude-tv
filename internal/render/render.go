@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"claude-tv/internal/usage"
+	"github.com/svitiashchuk/claude-tv/internal/usage"
 
 	"github.com/fogleman/gg"
 	"github.com/golang/freetype/truetype"

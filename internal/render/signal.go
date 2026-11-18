@@ -6,7 +6,7 @@ import (
 	"math"
 	"strings"
 
-	"claude-tv/internal/usage"
+	"github.com/svitiashchuk/claude-tv/internal/usage"
 
 	"github.com/fogleman/gg"
 )

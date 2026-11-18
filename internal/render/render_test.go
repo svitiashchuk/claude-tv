@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"claude-tv/internal/usage"
+	"github.com/svitiashchuk/claude-tv/internal/usage"
 )
 
 // Every screen of every theme must draw without panicking, with full data and with none at all

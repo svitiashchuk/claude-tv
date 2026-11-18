@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strings"
 
-	"claude-tv/internal/render"
+	"github.com/svitiashchuk/claude-tv/internal/render"
 )
 
 //go:embed preview.html

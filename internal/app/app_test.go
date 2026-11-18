@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"claude-tv/internal/device"
-	"claude-tv/internal/usage"
+	"github.com/svitiashchuk/claude-tv/internal/device"
+	"github.com/svitiashchuk/claude-tv/internal/usage"
 )
 
 func TestShowUploadsOnlyChangedScreens(t *testing.T) {

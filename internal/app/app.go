@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"claude-tv/internal/device"
-	"claude-tv/internal/render"
-	"claude-tv/internal/usage"
+	"github.com/svitiashchuk/claude-tv/internal/device"
+	"github.com/svitiashchuk/claude-tv/internal/render"
+	"github.com/svitiashchuk/claude-tv/internal/usage"
 )
 
 type Config struct {
