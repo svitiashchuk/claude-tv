@@ -15,7 +15,7 @@ import (
 // Usage is the token accounting of one assistant message.
 type Usage struct {
 	Input, Output, CacheWrite, CacheWrite5m, CacheWrite1h, CacheRead int64
-	Fast                                                            bool
+	Fast                                                             bool
 }
 
 // Tokens counts everything the model processed, cache reads included (same as ccusage's total).
