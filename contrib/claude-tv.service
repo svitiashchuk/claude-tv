@@ -1,0 +1,17 @@
+# systemd user service. Install:
+#   go build -o ~/.local/bin/claude-tv ./cmd/claude-tv
+#   cp contrib/claude-tv.service ~/.config/systemd/user/
+#   edit the -device address below, then:
+#   systemctl --user daemon-reload && systemctl --user enable --now claude-tv
+#   journalctl --user -u claude-tv -f
+[Unit]
+Description=Claude Code usage on the GeekMagic desk clock
+After=network-online.target
+
+[Service]
+ExecStart=%h/.local/bin/claude-tv -device 192.168.1.50
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

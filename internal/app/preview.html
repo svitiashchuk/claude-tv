@@ -1,0 +1,71 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>claude-tv</title>
+<style>
+  :root { color-scheme: dark; --bg:#121016; --fg:#ECE8F4; --muted:#9A93AB; --line:#2A2533; --accent:#B79CFF; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, sans-serif; padding:28px 20px 60px; }
+  main { max-width:1180px; margin:0 auto; }
+  header { display:flex; flex-wrap:wrap; gap:16px 28px; align-items:baseline; margin-bottom:22px; }
+  h1 { font-size:20px; margin:0; letter-spacing:-.01em; }
+  #device { color:var(--muted); }
+  #device.ok { color:#7EE2C9; }
+  .themes { display:flex; gap:8px; margin-left:auto; }
+  button { font:inherit; color:var(--fg); background:transparent; border:1px solid var(--line); border-radius:999px; padding:6px 16px; cursor:pointer; }
+  button[aria-pressed=true] { background:var(--fg); color:var(--bg); border-color:var(--fg); }
+  button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  section { margin-bottom:34px; }
+  h2 { font-size:14px; font-weight:600; color:var(--muted); margin:0 0 12px; }
+  .row { display:flex; flex-wrap:wrap; gap:18px; }
+  figure { margin:0; display:flex; flex-direction:column; gap:8px; align-items:center; }
+  .cube { padding:14px 14px 26px; border-radius:14px; background:linear-gradient(160deg,#f2f2ef,#c9cac5); box-shadow:0 14px 30px rgba(0,0,0,.45); }
+  img { display:block; width:200px; height:200px; image-rendering:pixelated; }
+  figcaption { font-size:13px; color:var(--muted); }
+  figure.live figcaption { color:var(--fg); font-weight:600; }
+  figure.live figcaption::after { content:" · on the clock now"; color:#7EE2C9; font-weight:500; }
+  @media (max-width:520px) { img { width:150px; height:150px; } }
+</style>
+<main>
+  <header>
+    <h1>claude-tv</h1>
+    <span id="device">connecting…</span>
+    <div class="themes" role="group" aria-label="Theme on the clock">
+      {{range .Themes}}<button data-theme="{{.}}" aria-pressed="false">{{.}}</button>{{end}}
+    </div>
+  </header>
+  {{$screens := .Screens}}
+  {{range .Themes}}{{$t := .}}
+  <section data-section="{{$t}}">
+    <h2>{{$t}}</h2>
+    <div class="row">
+      {{range $screens}}
+      <figure data-screen="{{.}}"><div class="cube"><img alt="{{$t}} {{.}} screen" data-src="/screen/{{$t}}/{{.}}.png"></div><figcaption>{{.}}</figcaption></figure>
+      {{end}}
+    </div>
+  </section>
+  {{end}}
+</main>
+<script>
+const imgs = [...document.querySelectorAll('img[data-src]')];
+function reload() { const t = Date.now(); imgs.forEach(i => i.src = i.dataset.src + '?t=' + t); }
+async function status() {
+  try {
+    const s = await (await fetch('/status')).json();
+    const d = document.getElementById('device');
+    d.textContent = 'Clock: ' + s.device;
+    d.className = s.device === 'ok' ? 'ok' : '';
+    document.querySelectorAll('button[data-theme]').forEach(b => b.setAttribute('aria-pressed', b.dataset.theme === s.theme));
+    document.querySelectorAll('section').forEach(sec => {
+      // the active theme's section first
+      if (sec.dataset.section === s.theme) sec.parentNode.insertBefore(sec, sec.parentNode.querySelector('section'));
+      sec.querySelectorAll('figure').forEach(f => f.classList.toggle('live', sec.dataset.section === s.theme && f.dataset.screen === s.current));
+    });
+  } catch (e) { document.getElementById('device').textContent = 'claude-tv is not running'; }
+}
+document.querySelectorAll('button[data-theme]').forEach(b => b.onclick = async () => {
+  await fetch('/theme', { method: 'POST', body: new URLSearchParams({ name: b.dataset.theme }) });
+  status();
+});
+reload(); status();
+setInterval(reload, 15000); setInterval(status, 3000);
+</script>
