@@ -24,7 +24,6 @@ type Config struct {
 	ScanEvery    time.Duration
 	LimitsEvery  time.Duration
 	Demo         bool
-	AlbumTheme   int
 	Brightness   int
 	JPEGQuality  int
 	Device       *device.GeekMagic // nil: preview only
@@ -48,8 +47,9 @@ type App struct {
 }
 
 type upload struct {
-	at   time.Time
-	hash [32]byte
+	at     time.Time
+	hash   [32]byte
+	screen string
 }
 
 func New(cfg Config) *App {
@@ -204,16 +204,20 @@ func (a *App) displayLoop(ctx context.Context) {
 		case <-next.C:
 		}
 		if !prepared {
-			info, err := dev.Info(ctx)
+			info, err := dev.Detect(ctx)
 			if err == nil {
-				err = dev.Prepare(ctx, a.cfg.AlbumTheme, a.cfg.Brightness)
+				err = dev.Prepare(ctx, a.cfg.Brightness)
 			}
 			if err != nil {
-				a.setDevState("unreachable: " + err.Error())
+				a.setDevState(err.Error())
 				next.Reset(30 * time.Second)
 				continue
 			}
 			log.Printf("device %s: %s", dev.Base, info)
+			if !dev.Named() && len(a.cfg.Screens) > 1 {
+				log.Printf("this firmware shows one picture at a time, so each screen change is an upload; " +
+					"to spare its flash use fewer -screens or a longer -rotate")
+			}
 			prepared = true
 		}
 		screen := a.cfg.Screens[i%len(a.cfg.Screens)]
@@ -230,23 +234,28 @@ func (a *App) displayLoop(ctx context.Context) {
 }
 
 // show uploads the screen if its content changed (at most once per MinUpload), then displays it.
+// Firmwares with a single picture slot need an upload for every screen change.
 func (a *App) show(ctx context.Context, screen string) error {
 	img := a.Theme().Render(screen, a.Snapshot())
 	jpg, err := EncodeJPEG(img, a.cfg.JPEGQuality)
 	if err != nil {
 		return err
 	}
-	name := "ctv-" + screen + ".jpg"
+	name, key := "ctv-"+screen+".jpg", screen
+	if !a.cfg.Device.Named() {
+		name, key = device.SlotName, "slot"
+	}
 	h := sha256.Sum256(jpg)
 	a.mu.RLock()
-	prev, ok := a.uploaded[screen]
+	prev, ok := a.uploaded[key]
 	a.mu.RUnlock()
-	if !ok || (prev.hash != h && time.Since(prev.at) >= a.cfg.MinUpload) {
+	switched := prev.screen != screen
+	if !ok || (prev.hash != h && (switched || time.Since(prev.at) >= a.cfg.MinUpload)) {
 		if err := a.cfg.Device.Upload(ctx, name, jpg); err != nil {
 			return err
 		}
 		a.mu.Lock()
-		a.uploaded[screen] = upload{time.Now(), h}
+		a.uploaded[key] = upload{time.Now(), h, screen}
 		a.mu.Unlock()
 	}
 	if err := a.cfg.Device.Show(ctx, name); err != nil {

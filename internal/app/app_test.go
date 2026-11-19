@@ -26,7 +26,9 @@ func TestShowUploadsOnlyChangedScreens(t *testing.T) {
 	defer srv.Close()
 
 	now := time.Date(2026, 11, 18, 15, 20, 0, 0, time.Local)
-	a := New(Config{Theme: "aurora", MinUpload: time.Hour, JPEGQuality: 90, Device: device.NewGeekMagic(srv.URL)})
+	dev := device.NewGeekMagic(srv.URL)
+	dev.Firmware = device.Ultra
+	a := New(Config{Theme: "aurora", MinUpload: time.Hour, JPEGQuality: 90, Device: dev})
 	a.snap = usage.Demo(now)
 	ctx := context.Background()
 
@@ -65,5 +67,30 @@ func TestJPEGIsSmall(t *testing.T) {
 		if len(jpg) > 60<<10 {
 			t.Errorf("%s: %d bytes; the clock holds ~1 MB of images in total", sc, len(jpg))
 		}
+	}
+}
+
+func TestSingleSlotFirmwareUploadsOnScreenChange(t *testing.T) {
+	var uploads atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/upload" {
+			uploads.Add(1)
+		}
+	}))
+	defer srv.Close()
+
+	dev := device.NewGeekMagic(srv.URL)
+	dev.Firmware = device.Legacy
+	a := New(Config{Theme: "aurora", MinUpload: time.Hour, JPEGQuality: 90, Device: dev})
+	a.snap = usage.Demo(time.Date(2026, 11, 18, 15, 20, 0, 0, time.Local))
+	ctx := context.Background()
+
+	for _, sc := range []string{"now", "now", "today", "today", "now"} {
+		if err := a.show(ctx, sc); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if uploads.Load() != 3 { // now, today, now
+		t.Fatalf("%d uploads, want 3 (one per screen change)", uploads.Load())
 	}
 }

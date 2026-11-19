@@ -1,9 +1,11 @@
 package usage
 
 import (
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -144,5 +146,55 @@ func TestSessionCurveEndsAtUtilization(t *testing.T) {
 	}
 	if math.Abs(pts[1].Y-12.5) > 1e-9 { // first message is a quarter of the window's spend
 		t.Fatalf("first step %+v", pts[1])
+	}
+}
+
+func TestTokenSources(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
+	dir := t.TempDir()
+	future := time.Now().Add(time.Hour).UnixMilli()
+	later := time.Now().Add(5 * time.Hour).UnixMilli()
+	cred := func(tok string, exp int64) []byte {
+		return []byte(fmt.Sprintf(`{"claudeAiOauth":{"accessToken":%q,"expiresAt":%d}}`, tok, exp))
+	}
+	c := &LimitsClient{CredentialsPath: filepath.Join(dir, ".credentials.json")}
+
+	// macOS: no file, token only in the Keychain (security prints it with a trailing newline)
+	c.Keychain = func() ([]byte, error) { return append(cred("from-keychain", future), '\n'), nil }
+	if tok, err := c.token(); err != nil || tok != "from-keychain" {
+		t.Fatalf("keychain only: %q %v", tok, err)
+	}
+
+	// both present and diverged: the one that expires last wins
+	os.WriteFile(c.CredentialsPath, cred("from-file", later), 0o600)
+	if tok, _ := c.token(); tok != "from-file" {
+		t.Fatalf("diverged: got %q, want the later-expiring file token", tok)
+	}
+
+	// expired everywhere
+	c.Keychain = nil
+	os.WriteFile(c.CredentialsPath, cred("old", time.Now().Add(-time.Minute).UnixMilli()), 0o600)
+	if _, err := c.token(); err != ErrTokenExpired {
+		t.Fatalf("want ErrTokenExpired, got %v", err)
+	}
+
+	// nothing anywhere
+	os.Remove(c.CredentialsPath)
+	if _, err := c.token(); err == nil || !strings.Contains(err.Error(), "log in") {
+		t.Fatalf("want a log-in hint, got %v", err)
+	}
+
+	// a long-lived token from `claude setup-token`
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "from-env")
+	if tok, _ := c.token(); tok != "from-env" {
+		t.Fatalf("env: got %q", tok)
+	}
+}
+
+func TestParseLimitsIgnoresUnexpectedFields(t *testing.T) {
+	body := `{"five_hour":{"utilization":10,"resets_at":"2026-11-18T16:48:00Z"},"extra_usage":{"is_enabled":false},"note":"x","seven_day":null}`
+	l, err := parseLimits([]byte(body), time.Now())
+	if err != nil || !l.Session.Known || l.Week.Known {
+		t.Fatalf("%+v %v", l, err)
 	}
 }

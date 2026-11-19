@@ -1,6 +1,7 @@
 package usage
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 )
 
@@ -33,6 +35,8 @@ const usageURL = "https://api.anthropic.com/api/oauth/usage"
 type LimitsClient struct {
 	CredentialsPath string
 	HTTP            *http.Client
+	// Keychain reads the macOS Keychain item; nil or an error means "not there".
+	Keychain func() ([]byte, error)
 }
 
 func NewLimitsClient() *LimitsClient {
@@ -41,30 +45,68 @@ func NewLimitsClient() *LimitsClient {
 	if dir == "" {
 		dir = filepath.Join(home, ".claude")
 	}
-	return &LimitsClient{CredentialsPath: filepath.Join(dir, ".credentials.json"), HTTP: &http.Client{Timeout: 15 * time.Second}}
+	return &LimitsClient{
+		CredentialsPath: filepath.Join(dir, ".credentials.json"),
+		HTTP:            &http.Client{Timeout: 15 * time.Second},
+		Keychain:        readKeychain,
+	}
 }
 
 // ErrTokenExpired means Claude Code hasn't refreshed its token yet; it does so next time it runs.
 var ErrTokenExpired = errors.New("Claude Code login token expired; it refreshes the next time you use Claude Code")
 
+type oauthCred struct {
+	AccessToken string `json:"accessToken"`
+	ExpiresAt   int64  `json:"expiresAt"` // unix ms
+}
+
+func parseCred(b []byte) (oauthCred, bool) {
+	var c struct {
+		OAuth oauthCred `json:"claudeAiOauth"`
+	}
+	if json.Unmarshal(bytes.TrimSpace(b), &c) != nil || c.OAuth.AccessToken == "" {
+		return oauthCred{}, false
+	}
+	return c.OAuth, true
+}
+
+// token finds Claude Code's login: $CLAUDE_CODE_OAUTH_TOKEN, ~/.claude/.credentials.json (Linux,
+// Windows), or the macOS Keychain. The file and the Keychain can disagree, so the token that
+// expires last wins.
 func (c *LimitsClient) token() (string, error) {
-	b, err := os.ReadFile(c.CredentialsPath)
-	if err != nil {
-		return "", fmt.Errorf("reading Claude Code credentials: %w", err)
+	if t := os.Getenv("CLAUDE_CODE_OAUTH_TOKEN"); t != "" {
+		return t, nil
 	}
-	var cred struct {
-		OAuth struct {
-			AccessToken string `json:"accessToken"`
-			ExpiresAt   int64  `json:"expiresAt"`
-		} `json:"claudeAiOauth"`
+	var found []oauthCred
+	if b, err := os.ReadFile(c.CredentialsPath); err == nil {
+		if cr, ok := parseCred(b); ok {
+			found = append(found, cr)
+		}
 	}
-	if err := json.Unmarshal(b, &cred); err != nil || cred.OAuth.AccessToken == "" {
-		return "", fmt.Errorf("no claude.ai login in %s", c.CredentialsPath)
+	if c.Keychain != nil {
+		if b, err := c.Keychain(); err == nil {
+			if cr, ok := parseCred(b); ok {
+				found = append(found, cr)
+			}
+		}
 	}
-	if cred.OAuth.ExpiresAt > 0 && time.UnixMilli(cred.OAuth.ExpiresAt).Before(time.Now()) {
+	if len(found) == 0 {
+		where := c.CredentialsPath
+		if runtime.GOOS == "darwin" {
+			where = `the macOS Keychain ("Claude Code-credentials") or ` + where
+		}
+		return "", fmt.Errorf("no Claude Code login found in %s; run `claude` and log in with your claude.ai account", where)
+	}
+	best := found[0]
+	for _, cr := range found[1:] {
+		if cr.ExpiresAt > best.ExpiresAt {
+			best = cr
+		}
+	}
+	if best.ExpiresAt > 0 && time.UnixMilli(best.ExpiresAt).Before(time.Now()) {
 		return "", ErrTokenExpired
 	}
-	return cred.OAuth.AccessToken, nil
+	return best.AccessToken, nil
 }
 
 func (c *LimitsClient) Fetch(ctx context.Context) (Limits, error) {
@@ -88,16 +130,17 @@ func (c *LimitsClient) Fetch(ctx context.Context) (Limits, error) {
 }
 
 func parseLimits(body []byte, now time.Time) (Limits, error) {
-	var raw map[string]*struct {
-		Utilization *float64 `json:"utilization"`
-		ResetsAt    string   `json:"resets_at"`
-	}
+	// Decode each window separately so unexpected extra fields can't break the ones we use.
+	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(body, &raw); err != nil {
 		return Limits{}, fmt.Errorf("usage endpoint: %w", err)
 	}
 	win := func(key string, length time.Duration) Window {
-		r := raw[key]
-		if r == nil || r.Utilization == nil {
+		var r struct {
+			Utilization *float64 `json:"utilization"`
+			ResetsAt    string   `json:"resets_at"`
+		}
+		if json.Unmarshal(raw[key], &r) != nil || r.Utilization == nil {
 			return Window{Length: length}
 		}
 		w := Window{Known: true, Util: *r.Utilization, Length: length}

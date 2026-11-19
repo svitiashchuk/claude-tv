@@ -22,9 +22,15 @@ import (
 )
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "render" {
-		renderCmd(os.Args[2:])
-		return
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "render":
+			renderCmd(os.Args[2:])
+			return
+		case "probe":
+			probeCmd(os.Args[2:])
+			return
+		}
 	}
 	runCmd(os.Args[1:])
 }
@@ -39,7 +45,7 @@ func runCmd(args []string) {
 	limitsEvery := fs.Duration("limits-every", 2*time.Minute, "how often to ask Anthropic for your plan limits")
 	preview := fs.String("preview", "127.0.0.1:8787", "preview page address; empty to disable")
 	brightness := fs.Int("brightness", -1, "set the clock's brightness 0–100 on start; -1 leaves it")
-	albumTheme := fs.Int("album-theme", 3, "the firmware's Photo Album theme number (3 on SmallTV Ultra, 4 on Pro)")
+	firmware := fs.String("firmware", "auto", "clock firmware: auto, "+strings.Join(firmwareNames(), ", "))
 	quality := fs.Int("jpeg-quality", 90, "JPEG quality for uploads")
 	storePath := fs.String("history", usage.DefaultStorePath(), "where hourly history is kept")
 	demo := fs.Bool("demo", false, "show sample data instead of your real usage")
@@ -62,7 +68,7 @@ func runCmd(args []string) {
 	cfg := app.Config{
 		Theme: *theme, Screens: list, Rotate: *rotate, MinUpload: *minUpload,
 		ScanEvery: 30 * time.Second, LimitsEvery: *limitsEvery, Demo: *demo,
-		AlbumTheme: *albumTheme, Brightness: *brightness, JPEGQuality: *quality,
+		Brightness: *brightness, JPEGQuality: *quality,
 		Store: store, Scanner: usage.NewScanner(usage.DefaultRoot()),
 	}
 	if *limits {
@@ -70,6 +76,12 @@ func runCmd(args []string) {
 	}
 	if *dev != "" {
 		cfg.Device = device.NewGeekMagic(*dev)
+		if *firmware != "auto" {
+			if !contains(firmwareNames(), *firmware) {
+				log.Fatalf("unknown firmware %q (have auto, %s)", *firmware, strings.Join(firmwareNames(), ", "))
+			}
+			cfg.Device.Firmware = device.Firmware(*firmware)
+		}
 	}
 	a := app.New(cfg)
 
@@ -145,6 +157,36 @@ func renderCmd(args []string) {
 			fmt.Println(p)
 		}
 	}
+}
+
+// probeCmd prints what the clock answers, for working out an unknown firmware.
+func probeCmd(args []string) {
+	fs := flag.NewFlagSet("probe", flag.ExitOnError)
+	dev := fs.String("device", os.Getenv("CLAUDE_TV_DEVICE"), "clock's IP address or hostname")
+	fs.Parse(args)
+	if *dev == "" {
+		log.Fatal("usage: claude-tv probe -device <clock-ip>")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	g := device.NewGeekMagic(*dev)
+	for _, line := range g.Probe(ctx) {
+		fmt.Println(line)
+	}
+	desc, err := g.Detect(ctx)
+	if err != nil {
+		fmt.Println("\ndetected: none —", err)
+		return
+	}
+	fmt.Println("\ndetected:", desc)
+}
+
+func firmwareNames() []string {
+	var s []string
+	for _, f := range device.Firmwares {
+		s = append(s, string(f))
+	}
+	return s
 }
 
 func contains(xs []string, s string) bool {

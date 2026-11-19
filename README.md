@@ -26,6 +26,11 @@ claude-tv -device 192.168.1.50     # your clock's IP, shown on its screen at boo
 Open <http://127.0.0.1:8787> to see every screen live and switch themes.
 No clock yet? Run `claude-tv -demo` and just use the preview page.
 
+Works with the stock **SmallTV Ultra** and **SmallTV Pro** firmware, the **SD_PRO**-style
+firmware and the older **Smart Weather Clock** firmware. claude-tv works out which one you have.
+If yours isn't recognised, run `claude-tv probe -device <ip>` and
+[open an issue](https://github.com/svitiashchuk/claude-tv/issues) with the output.
+
 ## Two themes
 
 **Aurora** (default): soft light on deep plum.
@@ -49,7 +54,9 @@ No clock yet? Run `claude-tv -demo` and just use the preview page.
 - **Everything stays on your laptop.** Usage is read from Claude Code's own files in
   `~/.claude`. The only outside call is to Anthropic for your plan limits, the same numbers
   claude.ai shows under *Settings → Usage*. Turn it off with `-limits=false`.
-- **Your login is read, never changed.** claude-tv reads Claude Code's token and never refreshes or rewrites it.
+- **Your login is read, never changed.** claude-tv reads Claude Code's token (the Keychain on
+  macOS, `~/.claude` on Linux) and never refreshes or rewrites it. On first run, macOS may
+  ask whether claude-tv can use the item.
 - **The clock only receives pictures.** Your own photos on it are left alone.
 - **Gentle on the clock.** A screen is only re-sent when it changes, at most once a minute.
 - **Tip:** block the clock from the internet in your router. claude-tv doesn't need it,
@@ -113,7 +120,7 @@ in `internal/render/fonts/`; drop in any `.ttf` and use its file name.
 | `-rotate` | `20s` | how long each screen stays up |
 | `-min-upload` | `60s` | re-send a changed screen at most this often |
 | `-brightness` | `-1` | set brightness 0–100 on start; `-1` leaves it alone |
-| `-album-theme` | `3` | photo mode number: `3` SmallTV Ultra, `4` Pro |
+| `-firmware` | `auto` | force `ultra`, `pro`, `sdpro` or `legacy` if detection guesses wrong |
 | `-limits` | `true` | `false`: never contact Anthropic |
 | `-demo` | | sample data |
 
@@ -125,7 +132,8 @@ Run it on login with [`contrib/claude-tv.service`](contrib/claude-tv.service) (s
 
 - Cost is what your usage would cost at API prices, which is useful for comparison but isn't your subscription bill.
 - Claude Code deletes old transcripts, so claude-tv keeps its own hourly totals in `~/.local/share/claude-tv/`.
-- Tested against the stock firmware protocol documented by [geekmagic-stats](https://docs.rs/crate/geekmagic-stats/0.1.0/source/device-protocol.md) (`Ultra-V9.0.43`).
+- Only the stock Ultra firmware can switch between stored pictures. The others show one picture at a time, so every screen change is an upload. Use fewer `-screens` or a longer `-rotate` to spare their flash.
+- The firmware endpoints follow the device reports collected by [geekmagic-hacs](https://github.com/adrienbrault/geekmagic-hacs) and [geekmagic-stats](https://docs.rs/crate/geekmagic-stats/0.1.0/source/device-protocol.md). Thank you!
 </details>
 
 ## License
