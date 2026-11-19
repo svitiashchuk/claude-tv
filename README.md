@@ -31,6 +31,9 @@ firmware and the older **Smart Weather Clock** firmware. claude-tv works out whi
 If yours isn't recognised, run `claude-tv probe -device <ip>` and
 [open an issue](https://github.com/svitiashchuk/claude-tv/issues) with the output.
 
+Something not working? `claude-tv doctor -device <ip>` checks your login, the connection to
+Anthropic and the clock, step by step. It never prints your token.
+
 ## Two themes
 
 **Aurora** (default): soft light on deep plum.
@@ -55,8 +58,7 @@ If yours isn't recognised, run `claude-tv probe -device <ip>` and
   `~/.claude`. The only outside call is to Anthropic for your plan limits, the same numbers
   claude.ai shows under *Settings → Usage*. Turn it off with `-limits=false`.
 - **Your login is read, never changed.** claude-tv reads Claude Code's token (the Keychain on
-  macOS, `~/.claude` on Linux) and never refreshes or rewrites it. On first run, macOS may
-  ask whether claude-tv can use the item.
+  macOS, `~/.claude` on Linux) and never refreshes or rewrites it.
 - **The clock only receives pictures.** Your own photos on it are left alone.
 - **Gentle on the clock.** A screen is only re-sent when it changes, at most once a minute.
 - **Tip:** block the clock from the internet in your router. claude-tv doesn't need it,

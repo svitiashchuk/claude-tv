@@ -30,6 +30,9 @@ func main() {
 		case "probe":
 			probeCmd(os.Args[2:])
 			return
+		case "doctor":
+			doctorCmd(os.Args[2:])
+			return
 		}
 	}
 	runCmd(os.Args[1:])

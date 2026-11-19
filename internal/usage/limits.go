@@ -3,6 +3,7 @@ package usage
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -47,9 +48,24 @@ func NewLimitsClient() *LimitsClient {
 	}
 	return &LimitsClient{
 		CredentialsPath: filepath.Join(dir, ".credentials.json"),
-		HTTP:            &http.Client{Timeout: 15 * time.Second},
+		HTTP:            &http.Client{Timeout: 30 * time.Second, Transport: NewTransport(true)},
 		Keychain:        readKeychain,
 	}
+}
+
+// NewTransport builds the HTTPS transport for Anthropic's API.
+//
+// With classic=true it offers only classic key exchanges (X25519, P-256). Go 1.24+ also offers a
+// post-quantum one by default, which makes the TLS ClientHello larger than one packet; some
+// routers, VPNs and firewalls drop such packets, and the handshake times out.
+func NewTransport(classic bool) *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.Proxy = http.ProxyFromEnvironment
+	t.TLSHandshakeTimeout = 15 * time.Second
+	if classic {
+		t.TLSClientConfig = &tls.Config{CurvePreferences: []tls.CurveID{tls.X25519, tls.CurveP256}}
+	}
+	return t
 }
 
 // ErrTokenExpired means Claude Code hasn't refreshed its token yet; it does so next time it runs.
@@ -70,23 +86,43 @@ func parseCred(b []byte) (oauthCred, bool) {
 	return c.OAuth, true
 }
 
-// token finds Claude Code's login: $CLAUDE_CODE_OAUTH_TOKEN, ~/.claude/.credentials.json (Linux,
+// Login describes where the token came from, for `claude-tv doctor`. It never holds the token.
+type Login struct {
+	Source    string    // "CLAUDE_CODE_OAUTH_TOKEN", the file path, or "macOS Keychain"
+	ExpiresAt time.Time // zero when unknown
+}
+
+// Login finds Claude Code's login: $CLAUDE_CODE_OAUTH_TOKEN, ~/.claude/.credentials.json (Linux,
 // Windows), or the macOS Keychain. The file and the Keychain can disagree, so the token that
 // expires last wins.
+func (c *LimitsClient) Login() (Login, error) {
+	l, _, err := c.login()
+	return l, err
+}
+
 func (c *LimitsClient) token() (string, error) {
+	_, tok, err := c.login()
+	return tok, err
+}
+
+func (c *LimitsClient) login() (Login, string, error) {
 	if t := os.Getenv("CLAUDE_CODE_OAUTH_TOKEN"); t != "" {
-		return t, nil
+		return Login{Source: "CLAUDE_CODE_OAUTH_TOKEN"}, t, nil
 	}
-	var found []oauthCred
+	type cand struct {
+		src string
+		cr  oauthCred
+	}
+	var found []cand
 	if b, err := os.ReadFile(c.CredentialsPath); err == nil {
 		if cr, ok := parseCred(b); ok {
-			found = append(found, cr)
+			found = append(found, cand{c.CredentialsPath, cr})
 		}
 	}
 	if c.Keychain != nil {
 		if b, err := c.Keychain(); err == nil {
 			if cr, ok := parseCred(b); ok {
-				found = append(found, cr)
+				found = append(found, cand{"macOS Keychain", cr})
 			}
 		}
 	}
@@ -95,18 +131,22 @@ func (c *LimitsClient) token() (string, error) {
 		if runtime.GOOS == "darwin" {
 			where = `the macOS Keychain ("Claude Code-credentials") or ` + where
 		}
-		return "", fmt.Errorf("no Claude Code login found in %s; run `claude` and log in with your claude.ai account", where)
+		return Login{}, "", fmt.Errorf("no Claude Code login found in %s; run `claude` and log in with your claude.ai account", where)
 	}
 	best := found[0]
-	for _, cr := range found[1:] {
-		if cr.ExpiresAt > best.ExpiresAt {
-			best = cr
+	for _, f := range found[1:] {
+		if f.cr.ExpiresAt > best.cr.ExpiresAt {
+			best = f
 		}
 	}
-	if best.ExpiresAt > 0 && time.UnixMilli(best.ExpiresAt).Before(time.Now()) {
-		return "", ErrTokenExpired
+	l := Login{Source: best.src}
+	if best.cr.ExpiresAt > 0 {
+		l.ExpiresAt = time.UnixMilli(best.cr.ExpiresAt)
+		if l.ExpiresAt.Before(time.Now()) {
+			return l, "", ErrTokenExpired
+		}
 	}
-	return best.AccessToken, nil
+	return l, best.cr.AccessToken, nil
 }
 
 func (c *LimitsClient) Fetch(ctx context.Context) (Limits, error) {
@@ -119,7 +159,7 @@ func (c *LimitsClient) Fetch(ctx context.Context) (Limits, error) {
 	req.Header.Set("anthropic-beta", "oauth-2025-04-20")
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return Limits{}, err
+		return Limits{}, fmt.Errorf("%w (run `claude-tv doctor` to check the connection)", err)
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
